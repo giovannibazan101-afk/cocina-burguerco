@@ -960,20 +960,38 @@ function parsePedido(row){
 function parseItemsStr(str){
   if(!str) return [];
   return str.split('||').map(s=>{
+    s = s.trim();
+    if(!s) return null;
     const parts = {};
-    s.split('|').forEach(p=>{ const [k,...v]=p.trim().split(':'); parts[k.trim()]=v.join(':').trim(); });
-    const m = (parts[''] || '').match(/\[(\w+)\]\s(.+?)×(\d+)/);
+    // La primera sección (antes del primer |) es el ítem principal;
+    // las siguientes son clave:valor
+    const segments = s.split('|');
+    const mainSeg = segments[0].trim();
+    segments.slice(1).forEach(p=>{
+      const idx = p.indexOf(':');
+      if(idx === -1) return;
+      const k = p.slice(0, idx).trim();
+      const v = p.slice(idx+1).trim();
+      if(k) parts[k] = v;
+    });
+
+    // Formato esperado: [CODIGO] Nombre del producto ×cantidad
+    // El código puede tener letras, números y guiones
+    const m = mainSeg.match(/\[([^\]]+)\]\s*(.+?)\s*[×x]\s*(\d+)/i);
+    // Fallback: intenta sin código → "Nombre del producto ×cantidad"
+    const m2 = !m ? mainSeg.match(/^(.+?)\s*[×x]\s*(\d+)$/i) : null;
+
     return {
-      code: m?m[1]:'',
-      name: m?m[2].trim():'',
-      qty:  m?parseInt(m[3]):1,
-      sin_ingredientes: parts['SIN']?parts['SIN'].split(','):[],
-      extras_seleccionados: parts['EXTRA']?parts['EXTRA'].split(','):[],
-      punto_coccion: parts['COCCION']||'',
-      notas: parts['NOTA']||'',
-      emoji:'🍔',
+      code: m ? m[1] : '',
+      name: m ? m[2].trim() : (m2 ? m2[1].trim() : mainSeg),
+      qty:  m ? parseInt(m[3]) : (m2 ? parseInt(m2[2]) : 1),
+      sin_ingredientes:    parts['SIN']    ? parts['SIN'].split(',').map(x=>x.trim()).filter(Boolean)   : [],
+      extras_seleccionados:parts['EXTRA']  ? parts['EXTRA'].split(',').map(x=>x.trim()).filter(Boolean) : [],
+      punto_coccion: parts['COCCION'] || parts['COCCIÓN'] || '',
+      notas: parts['NOTA'] || parts['NOTAS'] || '',
+      emoji: '🍔',
     };
-  });
+  }).filter(Boolean);
 }
 
 async function updateEstado(nroPedido, nuevoEstado){
@@ -1100,7 +1118,12 @@ function makeOrderCard(p){
   const isDelivery = p.tipo_entrega!=='retiro';
 
   let itemsHtml = '';
-  (p.items_parsed||[]).forEach(it=>{
+  const itemsList = p.items_parsed && p.items_parsed.length ? p.items_parsed : [];
+  if(itemsList.length === 0 && p.items){
+    // Fallback: mostrar el string crudo si el parsing falló
+    itemsHtml = `<div class="item-row"><div class="item-top"><span class="item-name" style="color:var(--yellow);font-size:.8rem;white-space:pre-wrap">${p.items}</span></div></div>`;
+  }
+  itemsList.forEach(it=>{
     let mods = '';
     it.sin_ingredientes?.forEach(s=>mods+=`<span class="mod-tag mod-sin">✗ Sin ${s}</span>`);
     it.extras_seleccionados?.forEach(e=>mods+=`<span class="mod-tag mod-extra">+ ${e}</span>`);
@@ -1277,10 +1300,10 @@ function renderInfo(){
     </div>
     <div class="info-card">
       <h3>Contacto</h3>
-      <button class="contact-btn wa-btn" onclick="window.open('https://wa.me/595976659277?text=Hola supervisor, consulta desde cocina','_blank')">
+      <button class="contact-btn wa-btn" onclick="window.open('https://wa.me/595981000000?text=Hola supervisor, consulta desde cocina','_blank')">
         💬 WhatsApp Supervisor
       </button>
-      <button class="contact-btn" onclick="window.open('tel:+595976659277')">
+      <button class="contact-btn" onclick="window.open('tel:+595981000000')">
         📞 Llamar a caja
       </button>
     </div>
@@ -1320,7 +1343,12 @@ function renderDetalleBody(p){
   const isDelivery = p.tipo_entrega!=='retiro';
   const waMsg = encodeURIComponent(`Hola ${p.cliente}! Te informamos sobre tu pedido ${p.nroPedido} 🍔`);
 
-  let itemsHtml = (p.items_parsed||[]).map(it=>{
+  const detItemsList = p.items_parsed && p.items_parsed.length ? p.items_parsed : [];
+  let itemsHtml = '';
+  if(detItemsList.length === 0 && p.items){
+    itemsHtml = `<div class="det-item-row"><div class="det-item-top"><span class="det-iname" style="color:var(--yellow);font-size:.8rem;white-space:pre-wrap">${p.items}</span></div></div>`;
+  }
+  itemsHtml += detItemsList.map(it=>{
     let mods = '';
     it.sin_ingredientes?.forEach(s=>mods+=`<span class="mod-tag mod-sin">✗ Sin ${s}</span>`);
     it.extras_seleccionados?.forEach(e=>mods+=`<span class="mod-tag mod-extra">+ ${e}</span>`);
@@ -1462,4 +1490,3 @@ function fmtNum(n){ return Number(n).toLocaleString('es-PY'); }
 </script>
 </body>
 </html>
-
